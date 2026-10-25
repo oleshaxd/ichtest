@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Симулятор DPS/BUD · Idle Champions Helper</title>
+<style>
+:root{color-scheme:dark;--bg:#10141c;--panel:#1b2330;--panel2:#252f40;--line:#374459;--text:#f3f6fc;--muted:#aab6c8;--gold:#e5b85c;--green:#82d6a5;--warn:#f0c779}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#202c40,#10141c 65%);color:var(--text);font:15px/1.5 system-ui,Segoe UI,sans-serif}header{padding:20px max(18px,calc((100vw - 1100px)/2));border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}h1{font-size:clamp(22px,3vw,30px);margin:0}h2{font-size:19px;margin:0 0 12px}main{max-width:1100px;margin:22px auto;padding:0 16px 36px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}.muted,small{color:var(--muted)}small{font-size:12px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}button,a.link{font:inherit;font-weight:650;border-radius:9px;border:1px solid var(--line);padding:9px 11px;background:var(--panel2);color:var(--text);cursor:pointer;text-decoration:none}button.primary{background:var(--gold);border-color:var(--gold);color:#17140e}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px}.roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:14px}.roster-item{display:flex;gap:10px;align-items:center;padding:10px;background:#151b25;border:1px solid #303b4e;border-radius:10px}.roster-item input{width:17px;height:17px;accent-color:var(--gold)}.roster-item span{min-width:0}.roster-item strong,.roster-item small{display:block;overflow-wrap:anywhere}.champion{background:#151b25;border:1px solid #303b4e;border-radius:11px;padding:12px;margin-bottom:9px}.champion-title{display:flex;justify-content:space-between;gap:10px;align-items:center}.remove{padding:4px 8px;font-size:12px}.field{display:grid;gap:5px;margin:12px 0}.field select{width:100%;font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px}.warning{color:var(--warn);font-size:13px;margin:10px 0}.status{padding:12px;background:#151b25;border:1px solid #303b4e;border-radius:10px;color:var(--muted);margin-top:12px}.metric{padding:14px;background:#151b25;border:1px solid var(--line);border-radius:12px}.metric small{display:block}.metric strong{display:block;font-size:24px;margin-top:4px}.coverage{color:var(--green)}ul{padding-left:22px}footer{text-align:center;color:var(--muted);font-size:12px;padding:18px}a{color:var(--gold)}@media(max-width:560px){.panel{padding:14px}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>⚔ Симулятор DPS/BUD</h1><small>Idle Champions Helper · экспериментальная версия</small></div>
+  <a class="link" href="./index.html">← На основную страницу</a>
+</header>
+<main>
+  <section class="panel">
+    <h2>Состояние модели</h2>
+    <p>Цель — сравнивать формации по урону при максимальных улучшениях чемпионов, без учёта экипировки. Пока это каркас симулятора: числовые результаты не показываются, пока механики и формулы не подтверждены.</p>
+    <div class="status" id="sourceInfo">Читаю локальный ростер…</div>
+    <p class="muted">Версия игровых данных: <strong id="dataVersion">загрузка…</strong></p>
+    <p class="warning">Важно: DPS и BUD — разные показатели. BUD связан с самым сильным недавним попаданием по одной цели и со временем деградирует. Одна лишь сумма баффов не позволяет точно вычислить ни один из показателей.</p>
+  </section>
+  <section class="panel">
+    <h2>1. Чемпионы из твоего ростера</h2>
+    <p class="muted">Список берётся из локального сохранения основной страницы. Отметь чемпионов, которых хочешь включить в сравнение.</p>
+    <div class="row"><button id="selectAll" class="primary">Выбрать всех</button><button id="clearSelected">Снять выбор</button></div>
+    <div id="roster" class="roster"></div>
+  </section>
+  <div class="grid">
+    <section class="panel">
+      <h2>2. Специализации</h2>
+      <div id="selected"><p class="muted">Выбери чемпионов из своего ростера.</p></div>
+    </section>
+    <section class="panel">
+      <h2>3. Результаты</h2>
+      <p id="coverage" class="coverage">Проверяю доступность данных…</p>
+      <div class="grid">
+        <div class="metric"><small>Расчётный DPS</small><strong id="dps">Не рассчитан</strong></div>
+        <div class="metric"><small>Расчётный BUD</small><strong id="bud">Не рассчитан</strong></div>
+      </div>
+      <div class="status" id="resultNote">Проверка механик…</div>
+      <h3>Учитываемые эффекты</h3>
+      <ul id="effectList"><li>Проверка базы данных…</li></ul>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>Принципы точности</h2>
+    <ul>
+      <li>Неизвестные способности и множители не заменяются придуманными числами.</li>
+      <li>Специализация доступна только после добавления подтверждённых данных.</li>
+      <li>«Максимальная прокачка» — отдельное допущение модели; уровни экипировки и легендарные эффекты здесь не учитываются.</li>
+      <li>До проверки по контрольным примерам из игры результаты нельзя считать точными.</li>
+    </ul>
+    <p class="muted">Следующий шаг разработки: добавить первый небольшой набор чемпионов с проверенными базовыми параметрами, специализациями и числовыми формулами, а затем покрыть их автоматическими тестами.</p>
+  </section>
+</main>
+<footer>Idle Champions Helper · симулятор в разработке · исходная страница и её сохранения не изменяются</footer>
+<script src="./simulator.js"></script>
+</body>
+</html>

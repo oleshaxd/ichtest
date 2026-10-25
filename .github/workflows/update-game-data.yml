@@ -1,0 +1,36 @@
+name: Update Idle Champions game data
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/update-game-data.py"
+      - ".github/workflows/update-game-data.yml"
+      - "data/specializations.json"
+  schedule:
+    - cron: "23 6 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  update-game-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Fetch public game definitions
+        run: python3 scripts/update-game-data.py
+      - name: Commit refreshed data
+        run: |
+          if [ -z "$(git status --porcelain -- data/specializations.json data/game-definitions.json)" ]; then
+            echo "Game data is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/specializations.json data/game-definitions.json
+          git commit -m "Update Idle Champions game definitions"
+          git pull --rebase origin main
+          git push origin HEAD:main

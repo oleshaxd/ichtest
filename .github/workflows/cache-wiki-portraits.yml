@@ -1,0 +1,44 @@
+name: Cache Wiki champion portraits
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "scripts/cache_wiki_portraits.py"
+      - "assets/champions/README.md"
+      - ".github/workflows/cache-wiki-portraits.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cache-portraits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install image processing library
+        run: python -m pip install --disable-pip-version-check Pillow
+      - name: Download portrait images from Wiki
+        run: python scripts/cache_wiki_portraits.py
+      - name: Commit cached portraits
+        run: |
+          if [ -z "$(git status --porcelain assets/champions)" ]; then
+            echo "No new portrait files to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/champions
+          git commit -m "Cache champion portraits from Wiki"
+          git pull --rebase origin main
+          git push origin HEAD:main

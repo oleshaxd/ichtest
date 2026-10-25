@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "gameDataVersion": null,
+  "notes": "Only add champion data when the ability, specialization and numeric effect have been verified against current in-game data or a reliable source. Missing data must remain missing; do not infer multipliers.",
+  "champions": {}
+}
