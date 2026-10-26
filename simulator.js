@@ -154,7 +154,11 @@
           requirements: k.requirements || [],
           stacks_on_trigger: k.stacks_on_trigger || null,
           max_stacks: k.max_stacks ?? null,
-          stack_duration: k.stack_duration ?? null
+          stack_duration: k.stack_duration ?? null,
+          amount_func: k.amount_func || null,
+          stack_func: k.stack_func || null,
+          per_hero_expr: k.per_hero_expr || null,
+          off_when_benched: !!k.off_when_benched
         })),
         requirements: def?.requirements || [],
         buffUpgrade: null
@@ -229,6 +233,39 @@
     }));
     return { name: choiceName, upgrades, effects, missing: false };
   }
+  function mechanicLabel(command) {
+    const name = String(command || "").split(",")[0].trim().toLowerCase();
+    const labels = {
+      hero_dps_multiplier_mult: "Множитель урона самого чемпиона",
+      global_dps_multiplier_mult: "Множитель урона всех чемпионов",
+      target_hero_dps_multiplier_mult: "Множитель урона указанного чемпиона",
+      buff_upgrade: "Усиление другого улучшения — нужно раскрыть целевой эффект",
+      buff_upgrades: "Усиление нескольких улучшений — требуется разобрать каждую цель",
+      hero_dps_multiplier_mult_plus_upgrade_bonus: "Множитель урона с дополнительным бонусом улучшения"
+    };
+    return labels[name] || "";
+  }
+  function renderEffectKeys(keys) {
+    return (keys || []).map(key => {
+      const targets = key.targets?.length ? ' · цели: ' + key.targets.join(', ') : '';
+      const filters = key.filter_targets?.length ? ' · фильтры: ' + key.filter_targets.map(f => [f.type, f.tags || f.tag || ''].filter(Boolean).join(': ')).join('; ') : '';
+      const conditions = key.stacks_on_trigger ? ' · триггер/накопление: ' + JSON.stringify(key.stacks_on_trigger) : '';
+      const extra = [
+        key.amount_func ? 'amount_func=' + key.amount_func : '',
+        key.stack_func ? 'stack_func=' + key.stack_func : '',
+        key.per_hero_expr ? 'условие героя=' + key.per_hero_expr : '',
+        key.off_when_benched ? 'не действует, когда чемпион не в строю' : '',
+        key.max_stacks != null ? 'макс. накоплений=' + key.max_stacks : '',
+        key.stack_duration != null ? 'длительность накопления=' + key.stack_duration : ''
+      ].filter(Boolean).join(' · ');
+      const label = mechanicLabel(key.effect_string);
+      return '<div class="muted" style="margin-left:12px"><div>Ключ: <code>' + esc(key.effect_string) + '</code>' +
+        (label ? ' — ' + esc(label) : '') + '</div><div>' + esc(targets + filters + conditions) + '</div>' +
+        (extra ? '<div>' + esc(extra) + '</div>' : '') +
+        (key.requirements?.length ? '<div>Требования: <code>' + esc(JSON.stringify(key.requirements)) + '</code></div>' : '') +
+        '</div>';
+    }).join("");
+  }
   function renderResults() {
     const names = availableNames();
     const chosen = [];
@@ -257,23 +294,22 @@
           const resolved = item.resolved;
           if (resolved.missing) return '<li><strong>' + esc(item.label) + '</strong><div class="muted">Не удалось сопоставить выбор со справочником специализаций.</div></li>';
           const detail = resolved.effects.map(effect => {
-            const keys = effect.keys.map(key => {
-              const targets = key.targets.length ? ' · цели: ' + key.targets.join(', ') : '';
-              const filters = key.filter_targets.length ? ' · фильтры: ' + key.filter_targets.map(f => [f.type, f.tags || f.tag || ''].filter(Boolean).join(': ')).join('; ') : '';
-              const conditions = key.stacks_on_trigger ? ' · триггер: ' + JSON.stringify(key.stacks_on_trigger) : '';
-              return '<div class="muted" style="margin-left:12px">Ключ: <code>' + esc(key.effect_string) + '</code>' + esc(targets + filters + conditions) + '</div>';
-            }).join("");
+            const keys = renderEffectKeys(effect.keys);
             const buff = effect.buffUpgrade;
+            const targetKeys = buff?.targetEffect ? renderEffectKeys(buff.targetEffect.keys) : '';
             const buffDetail = buff
               ? '<div class="muted" style="margin-left:12px">Цель buff_upgrade: #' + buff.targetId + (buff.targetName ? ' «' + esc(buff.targetName) + '»' : '') +
                 ' · величина: ' + esc(buff.amountText) + '%' + (buff.variant ? ' · параметр: ' + esc(buff.variant) : '') + '</div>' +
                 (buff.targetEffect ? '<div style="margin-left:24px"><div>Эффект целевого улучшения: ' + esc(buff.targetEffect.description || 'описание отсутствует') + '</div>' +
                   '<div class="muted">Команда цели: <code>' + esc(buff.targetEffect.source || '') + '</code>' +
-                  (buff.targetEffect.effectId ? ' · effect_def #' + buff.targetEffect.effectId : '') + '</div></div>' : '')
+                  (buff.targetEffect.effectId ? ' · effect_def #' + buff.targetEffect.effectId : '') + '</div>' + targetKeys + '</div>' : '')
+              : '';
+            const reqs = effect.requirements?.length
+              ? '<div class="muted" style="margin-left:12px">Условия эффекта: <code>' + esc(JSON.stringify(effect.requirements)) + '</code></div>'
               : '';
             return '<div style="margin:4px 0 8px 12px"><div>' + esc(effect.description || 'Описание эффекта отсутствует в выгрузке.') + '</div>' +
               '<div class="muted">Источник: <code>' + esc(effect.source) + '</code>' + (effect.effectId ? ' · effect_def #' + effect.effectId : '') +
-              (effect.upgradeId ? ' · улучшение #' + effect.upgradeId : '') + '</div>' + buffDetail + keys + '</div>';
+              (effect.upgradeId ? ' · улучшение #' + effect.upgradeId : '') + '</div>' + buffDetail + keys + reqs + '</div>';
           }).join("");
           return '<li><strong>' + esc(item.label) + '</strong>' + (detail || '<div class="muted">Выгрузка не содержит разобранного effect_def для этой специализации.</div>') + '</li>';
         }).join("")
