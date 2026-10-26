@@ -22,21 +22,36 @@ DATA.mkdir(exist_ok=True)
 
 def fetch():
     last = None
+    # DNS failures can be transient on hosted runners. Retry each endpoint before
+    # falling back to the next known game API host.
     for url in URLS:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "IdleChampionsHelper-data-import/1.1"})
-            with urllib.request.urlopen(req, timeout=90) as response:
-                raw = response.read()
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict) and isinstance(parsed.get("hero_defines"), list):
-                upgrades = collect_upgrades(parsed)
-                if upgrades:
-                    return parsed, upgrades, url
-            preview = raw[:250].decode("utf-8", errors="replace").replace("\\n", " ")
-            last = ValueError(f"Unexpected response from {url}: {preview}")
-        except Exception as exc:
-            last = exc
-    raise RuntimeError(f"Could not fetch public game definitions: {last}")
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "IdleChampionsHelper-data-import/1.1"},
+                )
+                with urllib.request.urlopen(req, timeout=45) as response:
+                    raw = response.read()
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and isinstance(parsed.get("hero_defines"), list):
+                    upgrades = collect_upgrades(parsed)
+                    if upgrades:
+                        return parsed, upgrades, url
+                preview = raw[:250].decode("utf-8", errors="replace").replace("\\n", " ")
+                last = ValueError(f"Unexpected response from {url}: {preview}")
+            except Exception as exc:
+                last = exc
+            if attempt < 2:
+                import time
+                delay = 2 ** (attempt + 1)
+                print(f"Fetch attempt {attempt + 1}/3 failed for {url}: {last}; retrying in {delay}s", flush=True)
+                time.sleep(delay)
+    raise RuntimeError(
+        "Could not fetch public game definitions after retrying all known endpoints. "
+        f"Last error: {last}. If this is a name-resolution error, rerun the workflow "
+        "later or provide the game's cached_definitions.json as an offline source."
+    )
 
 
 def collect_upgrades(source):
