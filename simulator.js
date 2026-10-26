@@ -170,10 +170,30 @@
       const targetId = Number(buffMatch[2]);
       const target = upgradesById.get(targetId) || null;
       let targetEffect = null;
+      let amountInterpretation = null;
       if (target && depth < 1) {
         const targetEntry = parseEffectEntry(target.effect);
         if (/^effect_def\s*,/i.test(targetEntry.command)) {
-          targetEffect = effectDetails(target.effect, upgradesById, effectsById, depth + 1, { amount: amountText });
+          const targetRef = Number(targetEntry.command.match(/^effect_def\s*,\s*(\d+)/i)?.[1]);
+          const targetDef = effectsById.get(targetRef);
+          const simpleMultiplierKey = (targetDef?.effect_keys || []).find(k =>
+            /^(hero_dps_multiplier_mult|global_dps_multiplier_mult|target_hero_dps_multiplier_mult)\s*,/i.test(String(k.effect_string || "")));
+          const amountMatch = String(simpleMultiplierKey?.effect_string || "").match(/^[^,]+,\s*(-?\d+(?:\.\d+)?)/);
+          const baseAmount = amountMatch ? Number(amountMatch[1]) : null;
+          const boostPercent = Number(amountText);
+          const boostedAmount = baseAmount !== null && Number.isFinite(boostPercent)
+            ? baseAmount * (1 + boostPercent / 100)
+            : null;
+          const inherited = boostedAmount !== null ? { amount: boostedAmount } : {};
+          targetEffect = effectDetails(target.effect, upgradesById, effectsById, depth + 1, inherited);
+          if (baseAmount !== null && boostedAmount !== null) {
+            amountInterpretation = {
+              baseAmount,
+              boostPercent,
+              boostedAmount,
+              rule: "static_multiplier_parameter"
+            };
+          }
         } else if (targetEntry.command) {
           targetEffect = { source: targetEntry.command, description: targetEntry.description, effectId: null, keys: [], requirements: [], buffUpgrade: null };
         }
@@ -192,6 +212,7 @@
           targetId,
           targetName: target ? (target.name || target.specialization_name || 'без названия') : '',
           targetEffect,
+          amountInterpretation,
           variant: buffMatch[3] || null
         }
       };
@@ -299,7 +320,9 @@
             const targetKeys = buff?.targetEffect ? renderEffectKeys(buff.targetEffect.keys) : '';
             const buffDetail = buff
               ? '<div class="muted" style="margin-left:12px">Цель buff_upgrade: #' + buff.targetId + (buff.targetName ? ' «' + esc(buff.targetName) + '»' : '') +
-                ' · величина: ' + esc(buff.amountText) + '%' + (buff.variant ? ' · параметр: ' + esc(buff.variant) : '') + '</div>' +
+                ' · величина: ' + esc(buff.amountText) + '%' +
+                (buff.amountInterpretation ? ' · параметр эффекта: ' + esc(buff.amountInterpretation.baseAmount) + '% → ' + esc(buff.amountInterpretation.boostedAmount) + '%' : '') +
+                (buff.variant ? ' · параметр: ' + esc(buff.variant) : '') + '</div>' +
                 (buff.targetEffect ? '<div style="margin-left:24px"><div>Эффект целевого улучшения: ' + esc(buff.targetEffect.description || 'описание отсутствует') + '</div>' +
                   '<div class="muted">Команда цели: <code>' + esc(buff.targetEffect.source || '') + '</code>' +
                   (buff.targetEffect.effectId ? ' · effect_def #' + buff.targetEffect.effectId : '') + '</div>' + targetKeys + '</div>' : '')
