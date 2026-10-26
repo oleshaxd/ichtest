@@ -57,7 +57,6 @@ def collect_upgrades(source):
 def main():
     source, upgrades, source_url = fetch()
     heroes = source["hero_defines"]
-    hero_by_id = {str(h.get("id")): h for h in heroes if h.get("id") is not None}
     valid_heroes = {
         str(hero.get("id")): hero for hero in heroes
         if hero.get("id") is not None and (hero.get("english_name") or hero.get("name"))
@@ -73,8 +72,6 @@ def main():
         by_hero[hid].append({k: v for k, v in up.items() if k != "graphic_id"})
         spec = up.get("specialization_name")
         if isinstance(spec, str) and spec.strip():
-            # The page roster uses English champion names; specialization labels
-            # remain in the game's localized language when that is what the API returns.
             name = valid_heroes[hid].get("english_name") or valid_heroes[hid].get("name")
             choices = spec_names.setdefault(name, [])
             if spec.strip() not in choices:
@@ -120,17 +117,14 @@ def main():
         "game_rule_defines": source.get("game_rule_defines", []),
     }
     (DATA / "game-definitions.json").write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\\n",
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
 
     tier_payload = {}
     for hero_name, levels in spec_tiers.items():
         tier_payload[hero_name] = [
-            {
-                "level": level,
-                "choices": list(choices.values()),
-            }
+            {"level": level, "choices": list(choices.values())}
             for level, choices in sorted(levels.items(), key=lambda item: item[0])
         ]
 
@@ -147,7 +141,7 @@ def main():
         "tiers": tier_payload,
     }
     (DATA / "specializations.json").write_text(
-        json.dumps(spec_payload, ensure_ascii=False, indent=2) + "\\n",
+        json.dumps(spec_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     print(
