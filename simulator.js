@@ -113,15 +113,65 @@
       (definitions.effectKeyDefinitions || []).length + " типов эффектов. " +
       "Специализаций: " + specUpgrades.length + ", с найденным effect_def: " + linked.length + ".";
   }
+  function upgradeIndex() {
+    return new Map((definitions?.upgrades || []).map(u => [Number(u.id), u]));
+  }
+  function resolveSpecialization(name, tier, choiceName, upgradesById, effectsById) {
+    const heroTiers = tiersFor(name);
+    const tierData = heroTiers.find(t => Number(t.level) === Number(tier));
+    const choice = tierData?.choices?.find(c => c.name === choiceName);
+    if (!choice) return { name: choiceName, missing: true };
+    const upgrades = (choice.upgradeIds || []).map(id => upgradesById.get(Number(id))).filter(Boolean);
+    const effects = [];
+    for (const upgrade of upgrades) {
+      const ref = effectReference(upgrade);
+      if (ref !== null) {
+        const def = effectsById.get(ref);
+        effects.push({
+          source: upgrade.effect,
+          effectId: ref,
+          description: def?.description?.desc || def?.description || "",
+          keys: (def?.effect_keys || []).map(k => ({
+            effect_string: k.effect_string || "",
+            targets: k.targets || [],
+            filter_targets: k.filter_targets || [],
+            requirements: k.requirements || [],
+            stacks_on_trigger: k.stacks_on_trigger || null,
+            max_stacks: k.max_stacks ?? null,
+            stack_duration: k.stack_duration ?? null
+          })),
+          requirements: def?.requirements || []
+        });
+      } else {
+        const direct = String(upgrade.effect || "");
+        const m = direct.match(/^buff_upgrade\s*,\s*([^,]+)\s*,\s*(\d+)/i);
+        const targetUpgrade = m ? upgradesById.get(Number(m[2])) : null;
+        effects.push({
+          source: direct,
+          description: targetUpgrade
+            ? 'Улучшение #' + targetUpgrade.id + ' «' + (targetUpgrade.name || targetUpgrade.specialization_name || 'без названия') + '»; прямой эффект задаётся игровой командой ' + direct
+            : 'Прямой игровой эффект: ' + (direct || 'не указан'),
+          keys: [],
+          requirements: []
+        });
+      }
+    }
+    return { name: choiceName, upgrades, effects, missing: false };
+  }
   function renderResults() {
     const names = availableNames();
     const chosen = [];
+    const upgradesById = upgradeIndex();
+    const effectsById = new Map((definitions?.effectDefinitions || []).map(e => [Number(e.id), e]));
     for (const name of names) {
       const tiers = tiersFor(name);
       for (let i = 0; i < tiers.length; i++) {
         const tier = tiers[i];
         const value = specs[name + "::" + tier.level] || (i === 0 ? specs[name] : "") || "";
-        if (value) chosen.push(name + ' — ур. ' + tier.level + ': ' + value);
+        if (value) chosen.push({
+          label: name + ' — ур. ' + tier.level + ': ' + value,
+          resolved: resolveSpecialization(name, tier.level, value, upgradesById, effectsById)
+        });
       }
     }
     $("coverage").textContent = 'В формации: ' + names.length + ' чемпионов. Выбрано специализаций: ' + chosen.length + '.';
@@ -129,10 +179,24 @@
     $("dps").textContent = "Не рассчитан";
     $("bud").textContent = "Не рассчитан";
     $("resultNote").textContent = names.length
-      ? 'Формация и специализации синхронизированы. Точные DPS/BUD пока не рассчитываются: для этого нужны проверенные формулы атак, усилений и позиционных условий.'
+      ? 'Специализации связаны с игровыми улучшениями и определениями эффектов там, где связь найдена. DPS/BUD пока не рассчитываются.'
       : 'Добавь чемпионов в блок «Формации игры».';
     $("effectList").innerHTML = chosen.length
-      ? chosen.map(item => '<li>' + esc(item) + '</li>').join("")
+      ? chosen.map(item => {
+          const resolved = item.resolved;
+          if (resolved.missing) return '<li><strong>' + esc(item.label) + '</strong><div class="muted">Не удалось сопоставить выбор со справочником специализаций.</div></li>';
+          const detail = resolved.effects.map(effect => {
+            const keys = effect.keys.map(key => {
+              const targets = key.targets.length ? ' · цели: ' + key.targets.join(', ') : '';
+              const filters = key.filter_targets.length ? ' · фильтры: ' + key.filter_targets.map(f => [f.type, f.tags || f.tag || ''].filter(Boolean).join(': ')).join('; ') : '';
+              const conditions = key.stacks_on_trigger ? ' · триггер: ' + JSON.stringify(key.stacks_on_trigger) : '';
+              return '<div class="muted" style="margin-left:12px">Ключ: <code>' + esc(key.effect_string) + '</code>' + esc(targets + filters + conditions) + '</div>';
+            }).join("");
+            return '<div style="margin:4px 0 8px 12px"><div>' + esc(effect.description || 'Описание эффекта отсутствует в выгрузке.') + '</div>' +
+              '<div class="muted">Источник: <code>' + esc(effect.source) + '</code>' + (effect.effectId ? ' · effect_def #' + effect.effectId : '') + '</div>' + keys + '</div>';
+          }).join("");
+          return '<li><strong>' + esc(item.label) + '</strong>' + (detail || '<div class="muted">Выгрузка не содержит разобранного effect_def для этой специализации.</div>') + '</li>';
+        }).join("")
       : '<li>Пока не выбраны специализации в блоке «Формации игры».</li>';
   }
   function refreshFromMain() {
