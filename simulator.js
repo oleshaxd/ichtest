@@ -266,6 +266,45 @@
     };
     return labels[name] || "";
   }
+  function analyzeMultiplierKey(raw) {
+    const text = String(raw || "").trim();
+    const parts = text.split(",").map(part => part.trim());
+    const kind = String(parts[0] || "").toLowerCase();
+    const supported = new Set([
+      "hero_dps_multiplier_mult",
+      "global_dps_multiplier_mult",
+      "target_hero_dps_multiplier_mult"
+    ]);
+    if (!supported.has(kind)) return null;
+    const value = parts.length > 1 && parts[1] !== "" ? Number(parts[1]) : null;
+    return {
+      kind,
+      value: Number.isFinite(value) ? value : null,
+      scope: kind === "hero_dps_multiplier_mult" ? "self"
+        : kind === "global_dps_multiplier_mult" ? "global"
+        : "targeted",
+      raw: text
+    };
+  }
+  function multiplierAuditLabel(key) {
+    const parsed = analyzeMultiplierKey(key.effect_string);
+    if (!parsed) return "";
+    const scope = parsed.scope === "self" ? "цель — сам чемпион"
+      : parsed.scope === "global" ? "цель — глобальная группа чемпионов"
+      : "цель — указанный чемпион/набор целей";
+    const amount = parsed.value === null
+      ? "числовой параметр не распознан"
+      : "параметр команды: " + parsed.value + " (сырое значение игры; трактовка и порядок сложения ещё не подтверждены)";
+    const caveats = [];
+    if (key.targets?.length) caveats.push("есть targets");
+    if (key.filter_targets?.length) caveats.push("есть filter_targets");
+    if (key.requirements?.length) caveats.push("есть requirements");
+    if (key.amount_func) caveats.push("есть amount_func");
+    if (key.per_hero_expr) caveats.push("есть per_hero_expr");
+    if (key.stacks_on_trigger) caveats.push("есть накопление/триггер");
+    return "Кандидат на DPS-множитель · " + scope + " · " + amount +
+      (caveats.length ? " · требует отдельной обработки: " + caveats.join(", ") : "");
+  }
   function renderEffectKeys(keys) {
     return (keys || []).map(key => {
       const targets = key.targets?.length ? ' · цели: ' + key.targets.join(', ') : '';
@@ -280,8 +319,11 @@
         key.stack_duration != null ? 'длительность накопления=' + key.stack_duration : ''
       ].filter(Boolean).join(' · ');
       const label = mechanicLabel(key.effect_string);
+      const audit = multiplierAuditLabel(key);
       return '<div class="muted" style="margin-left:12px"><div>Ключ: <code>' + esc(key.effect_string) + '</code>' +
-        (label ? ' — ' + esc(label) : '') + '</div><div>' + esc(targets + filters + conditions) + '</div>' +
+        (label ? ' — ' + esc(label) : '') + '</div>' +
+        (audit ? '<div>' + esc(audit) + '</div>' : '') +
+        '<div>' + esc(targets + filters + conditions) + '</div>' +
         (extra ? '<div>' + esc(extra) + '</div>' : '') +
         (key.requirements?.length ? '<div>Требования: <code>' + esc(JSON.stringify(key.requirements)) + '</code></div>' : '') +
         '</div>';
