@@ -129,7 +129,14 @@
     }
     return { command: value, description: "" };
   }
-  function effectDetails(raw, upgradesById, effectsById, depth = 0) {
+  function interpolateEffectText(value, params = {}) {
+    let result = String(value ?? "");
+    for (const [key, replacement] of Object.entries(params)) {
+      result = result.replace(new RegExp("\\$\\(" + key + "\\)", "gi"), String(replacement));
+    }
+    return result;
+  }
+  function effectDetails(raw, upgradesById, effectsById, depth = 0, inheritedParams = {}) {
     const entry = parseEffectEntry(raw);
     const source = entry.command;
     const refMatch = source.match(/^effect_def\s*,\s*(\d+)/i);
@@ -139,7 +146,7 @@
       return {
         source,
         effectId: ref,
-        description: entry.description || def?.description?.desc || def?.description || "",
+        description: interpolateEffectText(entry.description || def?.description?.desc || def?.description || "", inheritedParams),
         keys: (def?.effect_keys || []).map(k => ({
           effect_string: k.effect_string || "",
           targets: k.targets || [],
@@ -162,7 +169,7 @@
       if (target && depth < 1) {
         const targetEntry = parseEffectEntry(target.effect);
         if (/^effect_def\s*,/i.test(targetEntry.command)) {
-          targetEffect = effectDetails(target.effect, upgradesById, effectsById, depth + 1);
+          targetEffect = effectDetails(target.effect, upgradesById, effectsById, depth + 1, { amount: amountText });
         } else if (targetEntry.command) {
           targetEffect = { source: targetEntry.command, description: targetEntry.description, effectId: null, keys: [], requirements: [], buffUpgrade: null };
         }
@@ -170,9 +177,9 @@
       return {
         source,
         effectId: null,
-        description: entry.description || (target
+        description: interpolateEffectText(entry.description || (target
           ? 'Усиливает улучшение #' + targetId + ' «' + (target.name || target.specialization_name || 'без названия') + '» на ' + amountText + '%'
-          : 'Команда buff_upgrade с величиной ' + amountText + '%; целевое улучшение #' + targetId + ' не найдено в выгрузке.'),
+          : 'Команда buff_upgrade с величиной ' + amountText + '%; целевое улучшение #' + targetId + ' не найдено в выгрузке.'), inheritedParams),
         keys: [],
         requirements: [],
         buffUpgrade: {
