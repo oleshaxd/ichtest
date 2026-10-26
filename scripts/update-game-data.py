@@ -54,14 +54,14 @@ def fetch():
     )
 
 
-def collect_upgrades(source):
-    """Flatten all upgrade definition tables, preserving source order."""
+def collect_sharded(source, prefix):
+    """Flatten a definition table whether it is whole or split into numbered shards."""
     result = []
-    if isinstance(source.get("upgrade_defines"), list):
-        result.extend(source["upgrade_defines"])
+    if isinstance(source.get(prefix), list):
+        result.extend(source[prefix])
     sharded = sorted(
         (key for key, value in source.items()
-         if key.startswith("upgrade_defines_") and isinstance(value, list)),
+         if key.startswith(prefix + "_") and isinstance(value, list)),
         key=lambda key: int(key.rsplit("_", 1)[-1]) if key.rsplit("_", 1)[-1].isdigit() else key,
     )
     for key in sharded:
@@ -69,8 +69,29 @@ def collect_upgrades(source):
     return result
 
 
+def collect_upgrades(source):
+    """Flatten all upgrade definition tables, preserving source order."""
+    return collect_sharded(source, "upgrade_defines")
+
+
+def load_cached(path):
+    """Load the game's cached_definitions.json without making network requests."""
+    with Path(path).open("r", encoding="utf-8") as handle:
+        source = json.load(handle)
+    if not isinstance(source, dict) or not isinstance(source.get("hero_defines"), list):
+        raise ValueError(f"{path} does not contain a valid hero_defines table")
+    upgrades = collect_upgrades(source)
+    if not upgrades:
+        raise ValueError(f"{path} does not contain upgrade definitions")
+    return source, upgrades, f"User-provided cached_definitions.json ({Path(path).name})"
+
+
 def main():
-    source, upgrades, source_url = fetch()
+    if len(sys.argv) > 1:
+        source, upgrades, source_url = load_cached(sys.argv[1])
+        print(f"Using offline game cache: {sys.argv[1]}", flush=True)
+    else:
+        source, upgrades, source_url = fetch()
     heroes = source["hero_defines"]
     valid_heroes = {
         str(hero.get("id")): hero for hero in heroes
@@ -125,7 +146,7 @@ def main():
         ],
         "attack_defines": source.get("attack_defines", []),
         "ability_defines": source.get("ability_defines", []),
-        "effect_defines": source.get("effect_defines", []),
+        "effect_defines": collect_sharded(source, "effect_defines"),
         "effect_key_defines": source.get("effect_key_defines", []),
         "buff_defines": source.get("buff_defines", []),
         "text_defines": source.get("text_defines", []),
