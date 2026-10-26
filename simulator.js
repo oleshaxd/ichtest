@@ -1,18 +1,20 @@
-/* Idle Champions Helper — shared DPS/BUD simulator UI and data foundation.
- * The main page uses the live formation; the standalone page remains available for testing.
- * Unknown game mechanics are never replaced with guessed numbers.
+/* Idle Champions Helper — formation-linked DPS/BUD panel.
+ * Embedded mode reads champions and specialization choices from the main formation.
+ * DPS/BUD remains disabled until verified game formulas are available.
  */
 (() => {
   "use strict";
   const DATA_URL = "./data/simulator-champions.json";
+  const SPECS_URL = "./data/specializations-tiered.json";
   const $ = (id) => document.getElementById(id);
   if (!$("roster") || !$("selected")) return;
 
-  const embedded = !!$("simScope");
+  const embedded = !!$("simulatorPanel");
   let roster = [];
   let formation = [];
   let formType = "diamond";
   let data = null;
+  let specializationData = { tiers: {} };
   let selected = [];
   let specs = {};
 
@@ -23,11 +25,12 @@
     roster = safeParse(localStorage.getItem("icRoster"), []);
     formation = safeParse(localStorage.getItem("icFormation"), []);
     formType = localStorage.getItem("icFormType") || "diamond";
+    specs = safeParse(localStorage.getItem("icChampionSpecs"), {});
   }
   function availableNames() {
-    const placed = [...new Set(formation.filter(Boolean))];
-    if (!embedded || $("simScope").value === "roster") return [...new Set(roster)];
-    return placed;
+    return embedded
+      ? [...new Set(formation.filter(Boolean))]
+      : [...new Set(roster)];
   }
   function slotOf(name) {
     const i = formation.findIndex((n) => n === name);
@@ -38,156 +41,98 @@
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     })[ch]);
   }
-  function championRecord(name) { return data?.champions?.[name] || null; }
-
+  function tiersFor(name) {
+    const tiers = specializationData?.tiers || {};
+    return tiers[name] || Object.entries(tiers).find(([key]) => key.trim().toLowerCase() === name.trim().toLowerCase())?.[1] || [];
+  }
   function renderRoster() {
     const box = $("roster");
     const names = availableNames();
     if (!names.length) {
-      box.innerHTML = embedded && $("simScope").value === "formation"
-        ? '<p class="muted">Формация пока пустая. Поставь чемпионов в слоты выше или переключи анализ на весь ростер.</p>'
-        : '<p class="muted">В локальном ростере нет чемпионов. Сначала добавь их на основной странице.</p>';
+      box.innerHTML = '<p class="muted">Формация пока пустая. Поставь чемпионов в слоты выше.</p>';
       return;
     }
     box.innerHTML = names.map((name) => {
-      const checked = selected.includes(name) ? "checked" : "";
-      const record = championRecord(name);
       const slot = slotOf(name);
-      const placement = embedded && $("simScope").value === "formation" && slot
-        ? `Слот ${slot} · ` : "";
-      return `<label class="roster-item">
-        <input type="checkbox" data-champion="${esc(name)}" ${checked}>
-        <span><strong>${esc(name)}</strong><small>${placement}${record ? "Есть запись в базе" : "Механики не проверены"}</small></span>
-      </label>`;
+      const record = data?.champions?.[name];
+      return '<div class="roster-item"><span><strong>' + esc(name) + '</strong><small>' +
+        (slot ? 'Слот ' + slot + ' · ' : '') +
+        (record ? 'Есть запись в справочной базе' : 'Справочная запись пока неполная') +
+        '</small></span></div>';
     }).join("");
-    box.querySelectorAll("[data-champion]").forEach((input) => {
-      input.addEventListener("change", () => {
-        const name = input.dataset.champion;
-        if (input.checked) {
-          if (!selected.includes(name)) selected.push(name);
-        } else {
-          selected = selected.filter((item) => item !== name);
-          delete specs[name];
-        }
-        renderRoster();
-        renderSelected();
-        renderResults();
-      });
-    });
   }
-
   function renderSelected() {
     const box = $("selected");
-    if (!selected.length) {
-      box.innerHTML = '<p class="muted">Выбери чемпионов для анализа слева.</p>';
+    const names = availableNames();
+    if (!names.length) {
+      box.innerHTML = '<p class="muted">Выбери специализации непосредственно в блоке «Формации игры».</p>';
       return;
     }
-    box.innerHTML = selected.map((name) => {
-      const record = championRecord(name);
-      const options = Array.isArray(record?.specializations) ? record.specializations : [];
-      const current = specs[name] || "";
-      const slot = slotOf(name);
-      const position = embedded && slot ? `<small class="muted">Позиция в текущей формации: слот ${slot}</small>` : "";
-      const specControl = options.length
-        ? `<label class="field">Специализация<select data-spec="${esc(name)}">
-            <option value="">— выбрать —</option>
-            ${options.map((spec) => `<option value="${esc(spec.id)}" ${current === spec.id ? "selected" : ""}>${esc(spec.name)}</option>`).join("")}
-          </select></label>`
-        : '<p class="warning">Нет подтверждённых данных специализаций для этого чемпиона.</p>';
-      return `<article class="champion">
-        <div class="champion-title"><strong>${esc(name)}</strong><button type="button" class="remove" data-remove="${esc(name)}">Убрать</button></div>
-        ${position}
-        ${specControl}
-        <small>${record?.dataStatus === "verified" ? "Данные проверены" : "Данные способностей не подтверждены"}</small>
-      </article>`;
+    box.innerHTML = names.map((name) => {
+      const tiers = tiersFor(name);
+      const choices = tiers.map((tier, i) => {
+        const key = name + "::" + tier.level;
+        const current = specs[key] || (i === 0 ? specs[name] : "") || "";
+        const chosen = current ? '<b>' + esc(current) + '</b>' : '<span class="muted">не выбрана</span>';
+        return '<li><small>Ур. ' + esc(tier.level) + ':</small> ' + chosen + '</li>';
+      }).join("");
+      const detail = tiers.length
+        ? '<ul style="margin:5px 0 0;padding-left:20px">' + choices + '</ul>'
+        : '<p class="muted" style="margin:5px 0 0">В базе пока нет уровневых данных специализаций для этого чемпиона.</p>';
+      return '<article class="champion"><div class="champion-title"><strong>' + esc(name) +
+        '</strong>' + (slotOf(name) ? '<small>Слот ' + slotOf(name) + '</small>' : '') +
+        '</div>' + detail + '</article>';
     }).join("");
-    box.querySelectorAll("[data-spec]").forEach((select) => {
-      select.addEventListener("change", () => {
-        specs[select.dataset.spec] = select.value;
-        renderResults();
-      });
-    });
-    box.querySelectorAll("[data-remove]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const name = button.dataset.remove;
-        selected = selected.filter((item) => item !== name);
-        delete specs[name];
-        renderRoster();
-        renderSelected();
-        renderResults();
-      });
-    });
-  }
-
-  function getVerifiedData() {
-    return selected.map((name) => ({ name, record: championRecord(name), specId: specs[name] }))
-      .filter((item) => item.record?.dataStatus === "verified" &&
-        item.record?.specializations?.some((spec) => spec.id === item.specId) &&
-        Array.isArray(item.record?.effects) && item.record.effects.length > 0);
   }
   function renderResults() {
-    const verified = getVerifiedData();
-    const missing = selected.length - verified.length;
-    $("coverage").textContent = `Выбрано чемпионов: ${selected.length}. Полностью проверенных записей с выбранной специализацией и числовыми эффектами: ${verified.length}.`;
+    const names = availableNames();
+    const chosen = [];
+    for (const name of names) {
+      const tiers = tiersFor(name);
+      for (let i = 0; i < tiers.length; i++) {
+        const tier = tiers[i];
+        const value = specs[name + "::" + tier.level] || (i === 0 ? specs[name] : "") || "";
+        if (value) chosen.push(name + ' — ур. ' + tier.level + ': ' + value);
+      }
+    }
+    $("coverage").textContent = 'В формации: ' + names.length + ' чемпионов. Выбрано специализаций: ' + chosen.length + '.';
     $("dps").textContent = "Не рассчитан";
     $("bud").textContent = "Не рассчитан";
-    $("resultNote").innerHTML = selected.length
-      ? `Это пока интерфейс и база для модели, не готовый боевой расчёт. Полных проверенных записей: <b>${verified.length}</b>. Без подтверждённых формул атак, усилений и позиционных условий достоверный DPS/BUD вычислить нельзя.${missing ? ` Не хватает данных для ${missing} выбранных чемпионов.` : ""}`
-      : "Добавь чемпионов в формацию или выбери весь ростер.";
-    $("effectList").innerHTML = verified.length
-      ? verified.flatMap(({ name, record, specId }) => record.effects
-          .filter((effect) => effect.specializationId === specId)
-          .map((effect) => `<li><b>${esc(name)}</b>: ${esc(effect.description || effect.id)} — ${esc(effect.value)} (${esc(effect.operation)})</li>`))
-          .join("") || "<li>Нет числовых эффектов для выбранных специализаций.</li>"
-      : "<li>Пока нет подтверждённых записей. Неизвестные значения не заменяются догадками.</li>";
+    $("resultNote").textContent = names.length
+      ? 'Формация и специализации синхронизированы. Точные DPS/BUD пока не рассчитываются: для этого нужны проверенные формулы атак, усилений и позиционных условий.'
+      : 'Добавь чемпионов в блок «Формации игры».';
+    $("effectList").innerHTML = chosen.length
+      ? chosen.map(item => '<li>' + esc(item) + '</li>').join("")
+      : '<li>Пока не выбраны специализации в блоке «Формации игры».</li>';
   }
-
-  function refreshFromMain(resetSelection = true) {
+  function refreshFromMain() {
     readSources();
-    const names = availableNames();
-    if (resetSelection) selected = names.slice();
-    else selected = selected.filter((name) => names.includes(name));
-    for (const key of Object.keys(specs)) if (!names.includes(key)) delete specs[key];
+    selected = availableNames();
     if (embedded) {
-      const count = formation.filter(Boolean).length;
-      $("sourceInfo").textContent = $("simScope").value === "formation"
-        ? `Текущая формация «${formType}»: ${count} занятых слотов. Анализируются только чемпионы, стоящие в схеме выше.`
-        : `Ростер: ${roster.length} чемпионов. Анализируется весь доступный список, независимо от заполнения формации.`;
+      $("sourceInfo").textContent = 'Источник: формация «' + formType + '» выше. Симулятор автоматически читает ' +
+        formation.filter(Boolean).length + ' занятых слотов и выбранные специализации.';
     } else {
-      $("sourceInfo").textContent = `Ростер прочитан из этого браузера: ${roster.length} чемпионов. Формация «${formType}»: ${formation.filter(Boolean).length} занятых слотов.`;
+      $("sourceInfo").textContent = 'Ростер: ' + roster.length + ' чемпионов · формация «' + formType + '»: ' + formation.filter(Boolean).length + ' занятых слотов.';
     }
     renderRoster();
     renderSelected();
     renderResults();
   }
-
   async function init() {
     readSources();
-    try {
-      const response = await fetch(DATA_URL, { cache: "no-store" });
-      if (!response.ok) throw new Error("Не удалось загрузить базу данных");
-      data = await response.json();
-      $("dataVersion").textContent = data.gameDataVersion || "Не задана";
-    } catch (error) {
-      data = { champions: {} };
-      $("dataVersion").textContent = "Ошибка загрузки";
-      $("resultNote").textContent = error.message;
-    }
-    refreshFromMain(true);
+    const results = await Promise.allSettled([
+      fetch(DATA_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("simulator data unavailable"))),
+      fetch(SPECS_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("specialization data unavailable")))
+    ]);
+    data = results[0].status === "fulfilled" ? results[0].value : { champions: {} };
+    specializationData = results[1].status === "fulfilled" ? results[1].value : { tiers: {} };
+    if ($("dataVersion")) $("dataVersion").textContent = data.gameDataVersion || "Локальный кэш";
+    refreshFromMain();
   }
-
-  $("selectAll").addEventListener("click", () => {
-    selected = availableNames();
-    renderRoster(); renderSelected(); renderResults();
-  });
-  $("clearSelected").addEventListener("click", () => {
-    selected = []; specs = {};
-    renderRoster(); renderSelected(); renderResults();
-  });
-  if (embedded) $("simScope").addEventListener("change", () => refreshFromMain(true));
-  window.addEventListener("ic-helper-updated", () => refreshFromMain(true));
+  window.addEventListener("ic-helper-updated", refreshFromMain);
+  window.addEventListener("ic-specs-updated", refreshFromMain);
   window.addEventListener("storage", (event) => {
-    if (["icRoster", "icFormation", "icFormType"].includes(event.key)) refreshFromMain(true);
+    if (["icRoster", "icFormation", "icFormType", "icChampionSpecs"].includes(event.key)) refreshFromMain();
   });
   init();
 })();
