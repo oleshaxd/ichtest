@@ -88,7 +88,7 @@
     }).join("");
   }
   function effectReference(upgrade) {
-    const match = String(upgrade?.effect || "").match(/effect_def\\s*,\\s*(\\d+)/i);
+    const match = String(upgrade?.effect || "").match(/effect_def\s*,\s*(\d+)/i);
     return match ? Number(match[1]) : null;
   }
   function gameDataStatus() {
