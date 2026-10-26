@@ -28,6 +28,47 @@
 <section class="panel roster-panel"><h2>Мой ростер</h2><p class="muted">Твои разблокированные чемпионы. Список сохраняется в этом браузере.</p><div class="row"><input id="manual" placeholder="Добавить имя вручную"><button id="add" class="primary">Добавить</button></div><div class="row" style="margin-top:9px"><button id="importBtn">Импорт (JSON/CSV)</button><input id="importFile" type="file" accept=".json,.csv,.txt" class="hidden"><button id="export">Экспорт ростера</button><button id="clearRoster">Очистить</button></div><div class="status" id="myCount"></div><div class="roster-grid" id="myRoster"></div></section>
 <section class="panel catalog-panel"><h2>База чемпионов</h2><p class="muted">Нажми на портрет, чтобы открыть описание и способности чемпиона.</p><div class="row"><input id="search" placeholder="Поиск по имени или роли…"><select id="role"><option value="">Все роли</option><option>DPS</option><option>Support</option><option>Tank</option><option>Speed</option><option>Gold</option><option>Healing</option><option>Debuff</option><option>Control</option></select></div><div class="status" id="dbCount"></div><div class="champion-gallery" id="catalog"></div><div id="championDetail"></div></section>
 
+
+<section class="panel" id="simulatorPanel">
+  <h2>⚔ Симулятор DPS/BUD</h2>
+  <p class="muted">Симулятор встроен в главную страницу. Он читает твой ростер и текущую формацию выше; точные DPS/BUD появятся только после добавления подтверждённых игровых формул.</p>
+  <div class="status" id="sourceInfo">Читаю локальный ростер…</div>
+  <p class="muted">Версия игровых данных: <strong id="dataVersion">загрузка…</strong></p>
+  <p class="warning">Важно: пока это основа для расчёта, а не готовый боевой симулятор. Неизвестные множители не подменяются выдуманными числами.</p>
+  <div class="row" style="margin-bottom:12px">
+    <label>Анализировать:
+      <select id="simScope" aria-label="Область анализа">
+        <option value="formation">Текущую формацию</option>
+        <option value="roster">Весь мой ростер</option>
+      </select>
+    </label>
+    <button id="selectAll" class="primary">Выбрать всех</button>
+    <button id="clearSelected">Снять выбор</button>
+  </div>
+  <div class="grid">
+    <section>
+      <h3>1. Чемпионы</h3>
+      <div id="roster" class="roster"></div>
+    </section>
+    <section>
+      <h3>2. Специализации</h3>
+      <div id="selected"><p class="muted">Выбери чемпионов для анализа.</p></div>
+    </section>
+  </div>
+  <section style="margin-top:16px">
+    <h3>3. Результаты</h3>
+    <p id="coverage" class="coverage">Проверяю доступность данных…</p>
+    <div class="grid">
+      <div class="metric"><small>Расчётный DPS</small><strong id="dps">Не рассчитан</strong></div>
+      <div class="metric"><small>Расчётный BUD</small><strong id="bud">Не рассчитан</strong></div>
+    </div>
+    <div class="status" id="resultNote">Проверка механик…</div>
+    <h3 style="margin-top:16px">Учитываемые эффекты</h3>
+    <ul id="effectList"><li>Проверка базы данных…</li></ul>
+  </section>
+  <p class="muted" style="margin-top:14px">Цель следующего этапа — автоматический подбор комбинаций специализаций с учётом уровней выбора, позиции и синергий. Пока выбор специализаций доступен вручную, а числовой расчёт отключён до проверки механик.</p>
+</section>
+
 </main><footer>Idle Champions Helper · GitHub Pages · локальное сохранение</footer>
 <script>
 const raw = [
@@ -118,4 +159,6 @@ document.getElementById("search").oninput=renderCatalog;document.getElementById(
 list=list.map(x=>typeof x==="string"?x:(x&&x.name)||"").map(canon).filter(Boolean);const placed=form?form.map(n=>n?canon(n):""):null;roster=[...new Set([...roster,...list,...(placed||[]).filter(Boolean)])];if(placed)formation=placed;save();render()}
 document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();document.getElementById("importFile").onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>importData(t,f.name));e.target.value=""};
 render();
-</script></body></html>
+</script>
+<script src="./simulator.js"></script>
+</body></html>
