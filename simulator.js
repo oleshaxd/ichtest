@@ -6,6 +6,7 @@
   "use strict";
   const DATA_URL = "./data/simulator-champions.json";
   const SPECS_URL = "./data/specializations-tiered.json";
+  const DEFINITIONS_URL = "./data/game-definitions.json";
   const $ = (id) => document.getElementById(id);
   if (!$("roster") || !$("selected")) return;
 
@@ -14,6 +15,8 @@
   let formation = [];
   let formType = "diamond";
   let data = null;
+  let definitions = null;
+  let definitionsError = "";
   let specializationData = { tiers: {} };
   let selected = [];
   let specs = {};
@@ -84,6 +87,32 @@
         '</div>' + detail + '</article>';
     }).join("");
   }
+  function effectReference(upgrade) {
+    const match = String(upgrade?.effect || "").match(/effect_def\\s*,\\s*(\\d+)/i);
+    return match ? Number(match[1]) : null;
+  }
+  function gameDataStatus() {
+    const node = $("gameDataStatus");
+    if (!node) return;
+    if (!definitions) {
+      node.textContent = definitionsError
+        ? "Игровые определения не загружены: " + definitionsError + ". Ожидаемый файл: " + DEFINITIONS_URL
+        : "Загрузка игровых определений…";
+      return;
+    }
+    const effectIds = new Set((definitions.effectDefinitions || []).map(e => Number(e.id)));
+    const specUpgrades = (definitions.upgrades || []).filter(u => u.specialization_name);
+    const linked = specUpgrades.filter(u => {
+      const id = effectReference(u);
+      return id !== null && effectIds.has(id);
+    });
+    node.textContent = "Игровые определения подключены · " +
+      (definitions.heroes || []).length + " чемпионов · " +
+      (definitions.upgrades || []).length + " улучшений · " +
+      effectIds.size + " описаний эффектов · " +
+      (definitions.effectKeyDefinitions || []).length + " типов эффектов. " +
+      "Специализаций: " + specUpgrades.length + ", с найденным effect_def: " + linked.length + ".";
+  }
   function renderResults() {
     const names = availableNames();
     const chosen = [];
@@ -96,6 +125,7 @@
       }
     }
     $("coverage").textContent = 'В формации: ' + names.length + ' чемпионов. Выбрано специализаций: ' + chosen.length + '.';
+    gameDataStatus();
     $("dps").textContent = "Не рассчитан";
     $("bud").textContent = "Не рассчитан";
     $("resultNote").textContent = names.length
@@ -122,12 +152,23 @@
     readSources();
     const results = await Promise.allSettled([
       fetch(DATA_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("simulator data unavailable"))),
-      fetch(SPECS_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("specialization data unavailable")))
+      fetch(SPECS_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("specialization data unavailable"))),
+      fetch(DEFINITIONS_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     ]);
     data = results[0].status === "fulfilled" ? results[0].value : { champions: {} };
     specializationData = results[1].status === "fulfilled" ? results[1].value : { tiers: {} };
+    definitions = results[2].status === "fulfilled" ? results[2].value : null;
+    definitionsError = results[2].status === "rejected" ? String(results[2].reason?.message || results[2].reason) : "";
+    const statusHost = $("sourceInfo");
+    if (statusHost && !$("gameDataStatus")) {
+      const status = document.createElement("div");
+      status.id = "gameDataStatus";
+      status.className = "status";
+      statusHost.insertAdjacentElement("afterend", status);
+    }
     if ($("dataVersion")) $("dataVersion").textContent = data.gameDataVersion || "Локальный кэш";
     refreshFromMain();
+    gameDataStatus();
   }
   window.addEventListener("ic-helper-updated", refreshFromMain);
   window.addEventListener("ic-specs-updated", refreshFromMain);
