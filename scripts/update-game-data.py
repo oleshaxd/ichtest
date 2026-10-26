@@ -65,6 +65,7 @@ def main():
 
     by_hero = {hid: [] for hid in valid_heroes}
     spec_names = {}
+    spec_tiers = {}
     for up in upgrades:
         hid = str(up.get("hero_id", ""))
         if hid not in valid_heroes:
@@ -78,6 +79,26 @@ def main():
             choices = spec_names.setdefault(name, [])
             if spec.strip() not in choices:
                 choices.append(spec.strip())
+
+            level = up.get("required_level")
+            try:
+                level = int(level) if level is not None else 0
+            except (TypeError, ValueError):
+                level = 0
+            tiers = spec_tiers.setdefault(name, {})
+            tier = tiers.setdefault(level, {})
+            choice = tier.setdefault(spec.strip(), {
+                "name": spec.strip(),
+                "description": (up.get("specialization_description") or "").strip(),
+                "upgradeIds": [],
+                "effects": [],
+            })
+            upgrade_id = up.get("id")
+            if upgrade_id is not None and upgrade_id not in choice["upgradeIds"]:
+                choice["upgradeIds"].append(upgrade_id)
+            effect = up.get("effect")
+            if isinstance(effect, str) and effect.strip() and effect not in choice["effects"]:
+                choice["effects"].append(effect)
 
     payload = {
         "schemaVersion": 1,
@@ -103,15 +124,27 @@ def main():
         encoding="utf-8",
     )
 
+    tier_payload = {}
+    for hero_name, levels in spec_tiers.items():
+        tier_payload[hero_name] = [
+            {
+                "level": level,
+                "choices": list(choices.values()),
+            }
+            for level, choices in sorted(levels.items(), key=lambda item: item[0])
+        ]
+
     spec_payload = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "source": source_url,
         "generatedAt": source.get("current_time"),
         "sourceNote": (
-            "Generated from the public game definitions. Unique specialization_name values "
-            "are listed per champion; choices from different specialization tiers are combined."
+            "Specialization choices are grouped by required_level. Descriptions and raw "
+            "upgrade effect strings come from game definitions; effect strings are not "
+            "themselves a complete damage simulation formula."
         ),
         "champions": spec_names,
+        "tiers": tier_payload,
     }
     (DATA / "specializations.json").write_text(
         json.dumps(spec_payload, ensure_ascii=False, indent=2) + "\\n",
@@ -120,7 +153,8 @@ def main():
     print(
         f"Imported {len(valid_heroes)} champions, {len(upgrades)} upgrades, "
         f"{sum(map(len, by_hero.values()))} champion upgrades, "
-        f"{sum(map(len, spec_names.values()))} specialization options."
+        f"{sum(map(len, spec_names.values()))} unique specialization names across champions, "
+        f"{sum(len(tiers) for tiers in tier_payload.values())} specialization tiers."
     )
     if not spec_names:
         raise RuntimeError("No specialization names found; refusing to publish an empty database.")
