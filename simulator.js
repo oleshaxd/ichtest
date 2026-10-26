@@ -116,46 +116,110 @@
   function upgradeIndex() {
     return new Map((definitions?.upgrades || []).map(u => [Number(u.id), u]));
   }
+  function parseEffectEntry(raw) {
+    if (raw && typeof raw === "object") {
+      return { command: String(raw.effect_string || ""), description: String(raw.description || "") };
+    }
+    const value = String(raw || "").trim();
+    if (value.startsWith("{")) {
+      const parsed = safeParse(value, null);
+      if (parsed && typeof parsed === "object") {
+        return { command: String(parsed.effect_string || ""), description: String(parsed.description || "") };
+      }
+    }
+    return { command: value, description: "" };
+  }
+  function effectDetails(raw, upgradesById, effectsById, depth = 0) {
+    const entry = parseEffectEntry(raw);
+    const source = entry.command;
+    const refMatch = source.match(/^effect_def\s*,\s*(\d+)/i);
+    if (refMatch) {
+      const ref = Number(refMatch[1]);
+      const def = effectsById.get(ref);
+      return {
+        source,
+        effectId: ref,
+        description: entry.description || def?.description?.desc || def?.description || "",
+        keys: (def?.effect_keys || []).map(k => ({
+          effect_string: k.effect_string || "",
+          targets: k.targets || [],
+          filter_targets: k.filter_targets || [],
+          requirements: k.requirements || [],
+          stacks_on_trigger: k.stacks_on_trigger || null,
+          max_stacks: k.max_stacks ?? null,
+          stack_duration: k.stack_duration ?? null
+        })),
+        requirements: def?.requirements || [],
+        buffUpgrade: null
+      };
+    }
+    const buffMatch = source.match(/^buff_upgrade\s*,\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([^,]+))?/i);
+    if (buffMatch) {
+      const amountText = buffMatch[1].trim();
+      const targetId = Number(buffMatch[2]);
+      const target = upgradesById.get(targetId) || null;
+      let targetEffect = null;
+      if (target && depth < 1) {
+        const targetEntry = parseEffectEntry(target.effect);
+        if (/^effect_def\s*,/i.test(targetEntry.command)) {
+          targetEffect = effectDetails(target.effect, upgradesById, effectsById, depth + 1);
+        } else if (targetEntry.command) {
+          targetEffect = { source: targetEntry.command, description: targetEntry.description, effectId: null, keys: [], requirements: [], buffUpgrade: null };
+        }
+      }
+      return {
+        source,
+        effectId: null,
+        description: entry.description || (target
+          ? 'Усиливает улучшение #' + targetId + ' «' + (target.name || target.specialization_name || 'без названия') + '» на ' + amountText + '%'
+          : 'Команда buff_upgrade с величиной ' + amountText + '%; целевое улучшение #' + targetId + ' не найдено в выгрузке.'),
+        keys: [],
+        requirements: [],
+        buffUpgrade: {
+          amount: Number(amountText),
+          amountText,
+          targetId,
+          targetName: target ? (target.name || target.specialization_name || 'без названия') : '',
+          targetEffect,
+          variant: buffMatch[3] || null
+        }
+      };
+    }
+    return {
+      source,
+      effectId: null,
+      description: entry.description || (source ? 'Прямая игровая команда: ' + source : ''),
+      keys: [],
+      requirements: [],
+      buffUpgrade: null
+    };
+  }
   function resolveSpecialization(name, tier, choiceName, upgradesById, effectsById) {
     const heroTiers = tiersFor(name);
     const tierData = heroTiers.find(t => Number(t.level) === Number(tier));
-    const choice = tierData?.choices?.find(c => c.name === choiceName);
+    const choice = tierData?.choices?.find(c => String(c.name || "").trim().toLowerCase() === String(choiceName || "").trim().toLowerCase());
     if (!choice) return { name: choiceName, missing: true };
     const upgrades = (choice.upgradeIds || []).map(id => upgradesById.get(Number(id))).filter(Boolean);
-    const effects = [];
-    for (const upgrade of upgrades) {
-      const ref = effectReference(upgrade);
-      if (ref !== null) {
-        const def = effectsById.get(ref);
-        effects.push({
-          source: upgrade.effect,
-          effectId: ref,
-          description: def?.description?.desc || def?.description || "",
-          keys: (def?.effect_keys || []).map(k => ({
-            effect_string: k.effect_string || "",
-            targets: k.targets || [],
-            filter_targets: k.filter_targets || [],
-            requirements: k.requirements || [],
-            stacks_on_trigger: k.stacks_on_trigger || null,
-            max_stacks: k.max_stacks ?? null,
-            stack_duration: k.stack_duration ?? null
-          })),
-          requirements: def?.requirements || []
-        });
-      } else {
-        const direct = String(upgrade.effect || "");
-        const m = direct.match(/^buff_upgrade\s*,\s*([^,]+)\s*,\s*(\d+)/i);
-        const targetUpgrade = m ? upgradesById.get(Number(m[2])) : null;
-        effects.push({
-          source: direct,
-          description: targetUpgrade
-            ? 'Улучшение #' + targetUpgrade.id + ' «' + (targetUpgrade.name || targetUpgrade.specialization_name || 'без названия') + '»; прямой эффект задаётся игровой командой ' + direct
-            : 'Прямой игровой эффект: ' + (direct || 'не указан'),
-          keys: [],
-          requirements: []
-        });
+    const rawEffects = [];
+    const seen = new Set();
+    const addRaw = (raw, upgradeId) => {
+      const parsed = parseEffectEntry(raw);
+      if (!parsed.command) return;
+      const key = parsed.command + '|' + (upgradeId ?? '');
+      if (!seen.has(key)) {
+        seen.add(key);
+        rawEffects.push({ raw, upgradeId });
       }
+    };
+    for (const upgrade of upgrades) addRaw(upgrade.effect, upgrade.id);
+    for (const raw of (choice.effects || [])) {
+      const parsed = parseEffectEntry(raw);
+      if (!rawEffects.some(item => parseEffectEntry(item.raw).command === parsed.command)) addRaw(raw, null);
     }
+    const effects = rawEffects.map(item => ({
+      ...effectDetails(item.raw, upgradesById, effectsById),
+      upgradeId: item.upgradeId
+    }));
     return { name: choiceName, upgrades, effects, missing: false };
   }
   function renderResults() {
@@ -192,8 +256,17 @@
               const conditions = key.stacks_on_trigger ? ' · триггер: ' + JSON.stringify(key.stacks_on_trigger) : '';
               return '<div class="muted" style="margin-left:12px">Ключ: <code>' + esc(key.effect_string) + '</code>' + esc(targets + filters + conditions) + '</div>';
             }).join("");
+            const buff = effect.buffUpgrade;
+            const buffDetail = buff
+              ? '<div class="muted" style="margin-left:12px">Цель buff_upgrade: #' + buff.targetId + (buff.targetName ? ' «' + esc(buff.targetName) + '»' : '') +
+                ' · величина: ' + esc(buff.amountText) + '%' + (buff.variant ? ' · параметр: ' + esc(buff.variant) : '') + '</div>' +
+                (buff.targetEffect ? '<div style="margin-left:24px"><div>Эффект целевого улучшения: ' + esc(buff.targetEffect.description || 'описание отсутствует') + '</div>' +
+                  '<div class="muted">Команда цели: <code>' + esc(buff.targetEffect.source || '') + '</code>' +
+                  (buff.targetEffect.effectId ? ' · effect_def #' + buff.targetEffect.effectId : '') + '</div></div>' : '')
+              : '';
             return '<div style="margin:4px 0 8px 12px"><div>' + esc(effect.description || 'Описание эффекта отсутствует в выгрузке.') + '</div>' +
-              '<div class="muted">Источник: <code>' + esc(effect.source) + '</code>' + (effect.effectId ? ' · effect_def #' + effect.effectId : '') + '</div>' + keys + '</div>';
+              '<div class="muted">Источник: <code>' + esc(effect.source) + '</code>' + (effect.effectId ? ' · effect_def #' + effect.effectId : '') +
+              (effect.upgradeId ? ' · улучшение #' + effect.upgradeId : '') + '</div>' + buffDetail + keys + '</div>';
           }).join("");
           return '<li><strong>' + esc(item.label) + '</strong>' + (detail || '<div class="muted">Выгрузка не содержит разобранного effect_def для этой специализации.</div>') + '</li>';
         }).join("")
